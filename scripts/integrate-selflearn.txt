@@ -1,0 +1,27 @@
+Paste this code block at the end of `~/.hermes/hooks/self-learn/handler.py`,
+inside the `handle()` function, after the session:end block:
+
+    # -----------------------------------------------------------------------
+    # Auto push to Git remote (wiki-sync)
+    # -----------------------------------------------------------------------
+    if (event_type in ("agent:end", "session:end")) and written:
+        import subprocess
+        SKILL_DIR = Path.home() / ".hermes" / "skills" / "note-taking" / "wiki-sync"
+        SYNC_SCRIPT = SKILL_DIR / "scripts" / "sync.sh"
+        if SYNC_SCRIPT.exists():
+            try:
+                result = subprocess.run(
+                    ["bash", str(SYNC_SCRIPT), "push"],
+                    capture_output=True, timeout=30,
+                    cwd=str(WIKI_ROOT),
+                )
+                out = result.stdout.decode().strip()
+                if out and "✓" in out:
+                    print(f"[wiki-sync] {out}")
+                elif result.returncode != 0:
+                    err = result.stderr.decode().strip()
+                    print(f"[wiki-sync] WARN: {err[:200]}")
+            except subprocess.TimeoutExpired:
+                print("[wiki-sync] WARN: push timed out")
+            except Exception as e:
+                print(f"[wiki-sync] WARN: {e}")
