@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# llm-wiki-sync setup — 一键配置多 agent 知识同步架构
+# llm-wiki-sync setup — 一键配置多 agent 知识同步
 # Usage:
 #   bash setup.sh                   交互式安装
-#   bash setup.sh --yes             全自动安装（不询问）
-#   bash setup.sh --help            显示帮助
+#   bash setup.sh --yes             全自动（不询问）
+#   bash setup.sh --help            帮助
 set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -12,6 +12,7 @@ BOLD='\033[1m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo ""
@@ -24,6 +25,7 @@ echo ""
 # ---------------------------------------------------------------------------
 info()  { echo -e "  ${GREEN}✓${NC} $1"; }
 warn()  { echo -e "  ${YELLOW}⚠${NC} $1"; }
+code()  { echo ""; echo -e "  ${CYAN}$ ${NC}${BOLD}$1${NC}"; echo "    $2"; echo ""; }
 err()   { echo -e "  ${RED}✗${NC} $1"; }
 
 setup_symlink() {
@@ -45,13 +47,74 @@ setup_symlink() {
   fi
 
   if [ -d "$link_path" ] && [ ! -L "$link_path" ]; then
-    # 旧目录：备份后替换为 symlink
     warn "$agent_name — existing directory found, backing up..."
     mv "$link_path" "${link_path}.bak.$(date +%s)"
   fi
 
   ln -sf "$SKILL_DIR" "$link_path"
   info "$agent_name — symlink created ($link_path)"
+}
+
+init_wiki() {
+  local wiki_dir="$1"
+
+  echo "  Let's create one. This will:"
+  echo "    - Create $wiki_dir with a starter wiki.md"
+  echo "    - Initialize Git"
+  echo "    - Guide you through GitHub remote setup"
+  echo ""
+
+  mkdir -p "$wiki_dir"
+
+  cat > "$wiki_dir/wiki.md" << 'WIKI'
+# LLM Wiki
+
+Your shared knowledge base for AI agents.
+
+## How to use
+
+- Write project conventions, API configs, gotchas
+- Use confidence tags: ✅ verified / 💡 experience / 📋 procedure / ⚠️ speculation
+- Git commit after every meaningful change
+
+## Quick start
+
+- **[Project]: ...**
+- **[API]: ...**
+- **[Gotcha]: ...**
+WIKI
+
+  cat > "$wiki_dir/README.md" << 'README'
+# LLM Wiki
+
+Shared knowledge base for AI agents (Hermes, Claude Code, Codex, OpenCode, etc.).
+
+Managed with llm-wiki-sync.
+README
+
+  cat > "$wiki_dir/.gitignore" << 'GITIGNORE'
+# Self-learn temp files
+.self-learn-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+GITIGNORE
+
+  # 确保 Git 有 user config（干净环境可能没有）
+  cd "$wiki_dir"
+  git init
+  git config user.name 2>/dev/null || git config user.name "LLM Wiki"
+  git config user.email 2>/dev/null || git config user.email "wiki@localhost"
+
+  git add -A && git commit -m "init" 2>&1 | head -1
+  info "Wiki initialized at $wiki_dir"
 }
 
 show_usage() {
@@ -63,13 +126,11 @@ Options:
   --help    Show this help
 
 What this script does:
-  1. Creates ~/.agents/shared/llm-wiki-sync/  (or ensures current location)
-  2. Sets up symlinks for all detected AI agents
-  3. Guides you through wiki Git remote configuration
-  4. Tests sync functionality
-
-Supported agents:
-  Claude Code, Codex, OpenCode, Hermes, Cursor, Windsurf, and more
+  1. Moves skill to ~/.agents/shared/llm-wiki-sync/
+  2. Creates symlinks for all detected AI agents
+  3. Initializes wiki if needed (with starter template + Git)
+  4. Guides you through GitHub remote setup
+  5. Tests sync functionality
 EOF
   exit 0
 }
@@ -129,7 +190,6 @@ for AGENT_NAME in "${!AGENTS[@]}"; do
   AGENT_DIR="${AGENTS[$AGENT_NAME]}"
 
   if [ ! -d "$(dirname "$AGENT_DIR" 2>/dev/null)" ] && [ ! -d "$AGENT_DIR" ]; then
-    # Agent not installed, skip
     continue
   fi
 
@@ -158,58 +218,105 @@ info "$CONFIGURED agent(s) configured, $SKIPPED skipped."
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 3: Wiki Git remote
+# Step 3: Wiki directory & Git setup
 # ---------------------------------------------------------------------------
-echo -e "${BOLD}Step 3: Wiki Git remote${NC}"
+echo -e "${BOLD}Step 3: Wiki directory${NC}"
 echo ""
 
 WIKI_DIR="${WIKI_DIR:-$HOME/wiki}"
+
+if [ ! -d "$WIKI_DIR" ]; then
+  # Wiki 目录不存在
+  warn "Wiki directory ($WIKI_DIR) does not exist."
+  if $NONINTERACTIVE; then
+    init_wiki "$WIKI_DIR"
+  else
+    echo -n "  Create it with a starter wiki? [Y/n]: "
+    read -r REPLY
+    REPLY="${REPLY:-Y}"
+    case "$REPLY" in
+      [Yy]*) init_wiki "$WIKI_DIR" ;;
+      *) warn "Skipped. Create it later: mkdir -p $WIKI_DIR" ;;
+    esac
+  fi
+elif [ ! -d "$WIKI_DIR/.git" ]; then
+  # 有目录但没 Git
+  warn "Wiki directory exists but is not a Git repository."
+  if $NONINTERACTIVE; then
+    echo "  Initializing Git..."
+    (cd "$WIKI_DIR" && git init && git add -A 2>/dev/null; git commit -m "init" 2>/dev/null || true)
+    info "Git initialized in $WIKI_DIR"
+  else
+    echo -n "  Initialize Git? [Y/n]: "
+    read -r REPLY
+    REPLY="${REPLY:-Y}"
+    case "$REPLY" in
+      [Yy]*)
+        (cd "$WIKI_DIR" && git init && git add -A 2>/dev/null; git commit -m "init" 2>/dev/null || true)
+        info "Git initialized in $WIKI_DIR"
+        ;;
+      *) warn "Skipped Git init. Run manually: cd $WIKI_DIR && git init" ;;
+    esac
+  fi
+else
+  info "Wiki directory exists and is Git-tracked: $WIKI_DIR"
+fi
+
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 4: Git remote
+# ---------------------------------------------------------------------------
+echo -e "${BOLD}Step 4: Git remote${NC}"
+echo ""
 
 if [ -d "$WIKI_DIR/.git" ]; then
   CURRENT_REMOTE=""
   CURRENT_REMOTE=$(cd "$WIKI_DIR" && git remote get-url origin 2>/dev/null || echo "")
   if [ -n "$CURRENT_REMOTE" ]; then
-    info "Wiki Git remote already configured: $CURRENT_REMOTE"
+    info "Remote already configured: $CURRENT_REMOTE"
   else
-    warn "Wiki is Git-tracked but has no remote."
+    warn "No remote configured. Push your wiki to GitHub:"
+    echo ""
+    echo "    1. Create a new repository at https://github.com/new"
+    echo "       (Name it e.g. 'llm-wiki', Private, no README)"
+    echo ""
     if ! $NONINTERACTIVE; then
-      echo ""
-      echo -n "  Enter remote URL (e.g. https://github.com/YOUR_USER/llm-wiki.git): "
+      echo -n "    Enter remote URL (or leave blank to skip): "
       read -r REMOTE_URL
       if [ -n "$REMOTE_URL" ]; then
-        (cd "$WIKI_DIR" && git remote add origin "$REMOTE_URL" && git push -u origin master 2>/dev/null) && \
+        local default_branch default_branch=$(cd "$WIKI_DIR" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+        (cd "$WIKI_DIR" && git remote add origin "$REMOTE_URL" && git push -u origin "$default_branch" 2>/dev/null) && \
           info "Remote configured and pushed!" || \
           warn "Could not push. Check URL and auth."
       fi
     fi
   fi
-else
-  warn "Wiki directory ($WIKI_DIR) is not a Git repository."
-  warn "Initialize it: cd $WIKI_DIR && git init && git add -A && git commit -m \"init\""
 fi
 
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 4: Verify
+# Step 5: Verify
 # ---------------------------------------------------------------------------
-echo -e "${BOLD}Step 4: Verification${NC}"
+echo -e "${BOLD}Step 5: Verification${NC}"
 echo ""
 
 echo -n "  "
-if bash "$SKILL_DIR/scripts/sync.sh" status 2>&1 | head -5; then
+if bash "$SKILL_DIR/scripts/sync.sh" status 2>&1 | head -6; then
   info "Sync script works!"
 else
-  warn "Sync script check failed — review the output above."
+  warn "Sync check failed — review above."
 fi
 
 echo ""
 echo -e "${GREEN}${BOLD}Setup complete!${NC}"
 echo ""
-echo "  Usage:"
-echo "    bash $SKILL_DIR/scripts/sync.sh status         # Check status"
-echo "    bash $SKILL_DIR/scripts/sync.sh push           # Push changes"
-echo "    bash $SKILL_DIR/scripts/sync.sh pull           # Pull changes"
+echo "  Next steps:"
+echo "    Edit your wiki: $WIKI_DIR/wiki.md"
+echo "    Push changes: bash $SKILL_DIR/scripts/sync.sh push"
+echo "    Pull on other machines: bash $SKILL_DIR/scripts/sync.sh pull"
 echo ""
-echo "  All configured agents can find this skill under 'llm-wiki-sync'."
-echo "  Add new agents: ln -sf $SKILL_DIR <agent-path>/skills/llm-wiki-sync"
+echo "  Add more agents later:"
+echo "    ln -sf $SKILL_DIR <agent-path>/skills/llm-wiki-sync"
+echo ""
