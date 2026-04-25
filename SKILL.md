@@ -28,17 +28,25 @@ agent can find it.
 
 ## Installation
 
-### Step 1: One command, all agents
+### Step 1: Install the skill
 
 ```bash
-npx skills add HughesCuit/llm-wiki-sync -g -a claude-code -a codex -a opencode -y
+npx skills add HughesCuit/llm-wiki-sync -g -y
 ```
 
-This installs to **all supported agents simultaneously**. Behind the scenes:
+### Step 2: One-command setup (all agents)
 
-1. `npx skills` copies to `~/.agents/skills/llm-wiki-sync/` (or `~/.claude/skills/`)
-2. We then relocate the real files to `~/.agents/shared/llm-wiki-sync/`
-3. Each agent's skill directory becomes a symlink to the shared copy
+```bash
+bash ~/.agents/skills/llm-wiki-sync/setup.sh --yes
+```
+
+That's it. The script:
+
+1. Moves the skill to a shared directory (`~/.agents/shared/llm-wiki-sync/`)
+2. Detects all installed AI agents (Claude Code, Codex, OpenCode, Hermes, Cursor, etc.)
+3. Creates symlinks so every agent finds the same skill from one location
+4. Checks your wiki Git remote configuration
+5. Verifies the sync script works
 
 #### What if I add a new agent later?
 
