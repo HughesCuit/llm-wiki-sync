@@ -1,59 +1,53 @@
 ---
 name: llm-wiki-sync
 description: >
-  Cross-agent LLM Wiki Git sync. Automatically commit and push wiki changes
-  to a remote Git repository so knowledge is shared between Hermes, Claude Code,
-  Codex, and other AI agents. Supports push, pull, status, and self-learn auto-sync.
+  Cross-agent LLM Wiki Git sync. Install once, sync everywhere.
+  Works with 46+ agents: Claude Code, Codex, OpenCode, Cursor, and Hermes.
+  Behind the scenes: one shared directory + symlinks per agent.
 ---
 
 # llm-wiki-sync
 
 Sync your LLM Wiki to a remote Git repository, keeping knowledge shared across
-AI agents (Hermes, Claude Code, Codex, etc.).
+**all your AI agents** — Claude Code, Codex, OpenCode, Hermes, Cursor, and more.
+
+**Not just a SKILL.md.** This package ships `scripts/sync.sh`, a real Git sync
+script that stages, commits, and pushes changes. It installs into a shared
+`~/.agents/shared/llm-wiki-sync/` directory, then creates symlinks so every
+agent can find it.
 
 ## When to use
 
-- You use multiple AI agents and want them to share the same knowledge base
-- You maintain a wiki in Git (`~/wiki/` or similar) and want auto-sync
-- You want Hermes's self-learn to auto-commit learned knowledge to GitHub
-- You want Claude Code on another machine to `git pull` the latest wiki content
+- You use 2+ AI agents (Hermes + Claude Code + Codex + OpenCode + ...)
+- You maintain a wiki in Git (`~/wiki/` or similar) and want one agent's
+  learning to be instantly available to all others
+- You want Hermes's self-learn to auto-commit learned knowledge to GitHub,
+  which every other agent can then `git pull`
+- You want a single source of truth for project conventions, gotchas, and
+  API configs, readable by any agent on any machine
 
 ## Installation
 
-### Prerequisites
-
-| Requirement | Check command |
-|-------------|---------------|
-| Node.js (for npx) | `node --version` |
-| Git | `git --version` |
-| A wiki directory | `ls ~/wiki/wiki.md` |
-| A GitHub repository (private) | Already created at github.com/new |
-
-### Step 1: Install the skill
+### Step 1: One command, all agents
 
 ```bash
-npx skills add HughesCuit/llm-wiki-sync -g -a claude-code -y
+npx skills add HughesCuit/llm-wiki-sync -g -a claude-code -a codex -a opencode -y
 ```
 
-If the agent isn't Claude Code (e.g., you're using Cursor or OpenCode), pass the
-correct `--agent` flag or run interactively without flags:
+This installs to **all supported agents simultaneously**. Behind the scenes:
+
+1. `npx skills` copies to `~/.agents/skills/llm-wiki-sync/` (or `~/.claude/skills/`)
+2. We then relocate the real files to `~/.agents/shared/llm-wiki-sync/`
+3. Each agent's skill directory becomes a symlink to the shared copy
+
+#### What if I add a new agent later?
 
 ```bash
-npx skills add HughesCuit/llm-wiki-sync
+# Create a symlink for the new agent
+ln -sf ~/.agents/shared/llm-wiki-sync ~/.codex/skills/llm-wiki-sync
 ```
 
-<details>
-<summary>Hermes-specific installation</summary>
-
-Hermes isn't yet in the `npx skills` agent list. Install manually:
-
-```bash
-mkdir -p ~/.hermes/skills/note-taking
-git clone https://github.com/HughesCuit/llm-wiki-sync.git /tmp/llm-wiki-sync
-cp -r /tmp/llm-wiki-sync ~/.hermes/skills/note-taking/wiki-sync
-rm -rf /tmp/llm-wiki-sync
-```
-</details>
+That's it. One script, one update, every agent sees it.
 
 ### Step 2: Prepare your wiki Git repository
 
@@ -71,7 +65,7 @@ git push -u origin master
 ### Step 3: Verify it works
 
 ```bash
-bash ~/.claude/skills/llm-wiki-sync/scripts/sync.sh status
+bash ~/.agents/shared/llm-wiki-sync/scripts/sync.sh status
 ```
 
 Expected output:
@@ -89,56 +83,94 @@ Latest commit: abc1234 init
 
 ```bash
 # Push changes to remote
-bash scripts/sync.sh push
+bash ~/.agents/shared/llm-wiki-sync/scripts/sync.sh push
 
 # Push with a descriptive message
-bash scripts/sync.sh push --message "Added project guidelines"
+bash ~/.agents/shared/llm-wiki-sync/scripts/sync.sh push --message "Added project guidelines"
 
 # Pull latest from remote
-bash scripts/sync.sh pull
+bash ~/.agents/shared/llm-wiki-sync/scripts/sync.sh pull
 
 # Check status
-bash scripts/sync.sh status
+bash ~/.agents/shared/llm-wiki-sync/scripts/sync.sh status
 ```
 
-### Setting up auto-sync (cron)
+You can also call via any agent's symlink path — they all resolve to the same script:
 
 ```bash
-# Every 6 hours
-crontab -e
-# Add:
-# 0 */6 * * * cd ~/wiki && bash ~/.claude/skills/llm-wiki-sync/scripts/sync.sh push
+bash ~/.claude/skills/llm-wiki-sync/scripts/sync.sh status    # also works
+bash ~/.codex/skills/llm-wiki-sync/scripts/sync.sh status     # also works
 ```
 
-### Integrating with Claude Code projects
+### Integrating with coding projects
 
-For each coding project that should read wiki content:
+For each project where agents should read wiki content, add to the project's
+root config file:
 
-```bash
-cd ~/projects/your-project
-echo '## References
-- `~/wiki/wiki.md` — project conventions, gotchas, API config' >> CLAUDE.md
+**Claude Code** — `CLAUDE.md`:
+```markdown
+## References
+- `~/wiki/wiki.md` — project conventions, gotchas, API config
 ```
 
-Or create a symlink so Claude Code can read individual files:
+**Codex** — `AGENTS.md` or `CODEX.md`:
+```markdown
+## References
+- `~/wiki/wiki.md` — project conventions, gotchas, API config
+```
 
+**OpenCode** — `OPPENCODE.md` or `.opencode/skills/`:
+```markdown
+## References
+- `~/wiki/wiki.md` — project conventions, gotchas, API config
+```
+
+Or create a symlink in any project:
 ```bash
 cd ~/projects/your-project
 ln -s ~/wiki ./wiki
 ```
 
-## How it works
+## How the shared structure works
 
 ```
-[Agent A] learns something new
-    ↓ writes to ~/wiki/
-    ↓ git commit + git push
+~/.agents/shared/llm-wiki-sync/       ← SINGLE source of truth
+├── SKILL.md
+├── scripts/sync.sh
+└── scripts/integrate-selflearn.txt
+
+~/.claude/skills/llm-wiki-sync/       → symlink → ~/.agents/shared/llm-wiki-sync/
+~/.codex/skills/llm-wiki-sync/        → symlink → ~/.agents/shared/llm-wiki-sync/
+~/.config/opencode/skills/llm-wiki-sync/ → symlink → ~/.agents/shared/llm-wiki-sync/
+~/.hermes/skills/note-taking/wiki-sync/  → symlink → ~/.agents/shared/llm-wiki-sync/
+```
+
+Update once, every agent picks it up immediately.
+
+### Hermes self-learn auto-sync
+
+If you use Hermes's self-learn hook, append the code from
+`scripts/integrate-selflearn.txt` to `~/.hermes/hooks/self-learn/handler.py`.
+
+After that:
+
+1. ✅ Hermes learns something new → written to `~/wiki/learnings/YYYY-MM-DD.md`
+2. ✅ Auto `git commit + git push`
+3. ✅ All other agents `git pull` to read the latest knowledge
+
+## The big picture
+
+```
+[Hermes] learns something new
+    ↓ auto-writes to ~/wiki/learnings/
+    ↓ self-learn hook: git commit + git push
     ↓
-[GitHub] stores the latest version
+[GitHub] llm-wiki (Private)
     ↑
-[Agent B on another machine]
-    ↓ git pull
-    ↓ reads updated ~/wiki/
+[Claude Code] git pull  →  reads updated wiki
+[Codex]       git pull  →  reads updated wiki
+[OpenCode]    git pull  →  reads updated wiki
+[Any agent]   git pull  →  reads updated wiki
 ```
 
 ## Scripts
@@ -147,28 +179,18 @@ ln -s ~/wiki ./wiki
 
 | Command | Environment variables | Description |
 |---------|---------------------|-------------|
-| `push` | `WIKI_DIR` (default: `$HOME/wiki`) | Stage, commit, push |
+| `push` | `WIKI_DIR` (default: `$HOME/wiki`) | Stage all changes, commit, push |
 | `push --message "..."` | | With custom commit message |
 | `pull` | `REMOTE` (default: `origin`) | `git pull --rebase` |
-| `status` | `BRANCH` (default: `master`) | Show remote/branch/changes |
+| `status` | `BRANCH` (default: `master`) | Show remote, branch, changes |
 
 ### `scripts/integrate-selflearn.txt`
 
-Code block for Hermes self-learn hook auto-sync. Copy the content of this file
-into `~/.hermes/hooks/self-learn/handler.py` after the `session:end` handler.
-
-## Troubleshooting
-
-| Symptom | Likely cause | Fix |
-|---------|-------------|-----|
-| `No remote 'origin' configured` | Repository not connected | `git remote add origin <url>` |
-| `git push` asks for password | No credential helper | `git config --global credential.helper cache` |
-| `npx skills add` not found | Node.js not installed | `curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt install -y nodejs` |
-| Permission denied | Wrong remote URL | Check HTTPS vs SSH; use `git remote set-url origin <correct-url>` |
+Code snippet for Hermes self-learn hook auto-sync.
 
 ## Known pitfalls
 
-- **Fine-grained GitHub PAT cannot create repos** — always create repos manually on github.com/new
-- **`.gitignore` must exclude temp files** like `.self-learn-*` or they show up as untracked every time
-- **Symlinks fail across filesystem boundaries** (WSL → Windows) — use `--copy` instead
-- **`git push` in cron jobs needs credential helper** or SSH key authentication
+- **Fine-grained GitHub PAT cannot create repos** — create manually on github.com/new
+- **`.gitignore` must exclude temp files** like `.self-learn-*`
+- **Symlinks fail across filesystem boundaries** (WSL vs Windows) — use `--copy` instead
+- **`git push` in cron/auto-sync needs credential helper** or SSH key
